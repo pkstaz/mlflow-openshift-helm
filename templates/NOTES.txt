@@ -1,0 +1,22 @@
+1. Get the application URL:
+{{- if .Values.route.enabled }}
+  export ROUTE_HOST=$(oc get route {{ include "mlflow.fullname" . }} -o jsonpath='{.spec.host}')
+  {{- if .Values.route.tls.enabled }}
+  echo "MLflow URL: https://$ROUTE_HOST"
+  {{- else }}
+  echo "MLflow URL: http://$ROUTE_HOST"
+  {{- end }}
+{{- else }}
+  export POD_NAME=$(oc get pods -l "app.kubernetes.io/name={{ include "mlflow.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  echo "Visit http://127.0.0.1:8080 to use MLflow"
+  oc port-forward $POD_NAME 8080:{{ .Values.mlflow.server.port }}
+{{- end }}
+
+2. Configuration:
+   - PostgreSQL: {{ .Values.postgresql.host }}:{{ .Values.postgresql.port }}/{{ .Values.postgresql.database }}
+   - MinIO: {{ if .Values.minio.secure }}https{{ else }}http{{ end }}://{{ .Values.minio.endpoint }}:{{ .Values.minio.port }}
+   - Bucket: {{ .Values.minio.bucket }}
+
+3. Check status:
+   oc get pods -l app.kubernetes.io/name={{ include "mlflow.name" . }}
+   oc logs -l app.kubernetes.io/name={{ include "mlflow.name" . }} -f

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: mlflow
+description: MLflow for OpenShift 4.18+ with external MinIO and PostgreSQL
+type: application
+version: 1.0.0
+appVersion: "2.9.2"
+keywords:
+  - mlflow
+  - machine-learning
+  - openshift
+home: https://mlflow.org/
+sources:
+  - https://github.com/mlflow/mlflow
+maintainers:
+  - name: Carlos Estay
+    email: cestay@redhat.com

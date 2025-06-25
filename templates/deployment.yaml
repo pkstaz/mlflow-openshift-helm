@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mlflow.fullname" . }}
+  labels:
+    {{- include "mlflow.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.mlflow.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "mlflow.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mlflow.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mlflow.fullname" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: install-dependencies
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.mlflow.image.repository }}:{{ .Values.mlflow.image.tag }}"
+          imagePullPolicy: {{ .Values.mlflow.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              echo "=== Checking Python environment ==="
+              python3 --version
+              
+              echo "=== Installing dependencies with --user flag ==="
+              python3 -m pip install --user --no-cache-dir mlflow=={{ .Chart.AppVersion }} psycopg2-binary boto3
+              
+              echo "=== Verifying installation ==="
+              python3 -c "import mlflow; print(f'MLflow version: {mlflow.__version__}')"
+              
+              echo "=== Dependencies installed successfully ==="
+          volumeMounts:
+            - name: python-user-packages
+              mountPath: /home/user/.local
+          env:
+            - name: HOME
+              value: "/home/user"
+            - name: PYTHONPATH
+              value: "/home/user/.local/lib/python3.9/site-packages"
+      containers:
+        - name: mlflow
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.mlflow.image.repository }}:{{ .Values.mlflow.image.tag }}"
+          imagePullPolicy: {{ .Values.mlflow.image.pullPolicy }}
+          env:
+            - name: HOME
+              value: "/home/user"
+            - name: PYTHONPATH
+              value: "/home/user/.local/lib/python3.9/site-packages"
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              
+              echo "=== Verifying MLflow installation ==="
+              python3 -c "import mlflow; print(f'MLflow version: {mlflow.__version__}')"
+              python3 -c "import psycopg2; print('PostgreSQL driver OK')"
+              python3 -c "import boto3; print('AWS SDK OK')"
+              
+              echo "=== Configuring environment variables ==="
+              export AWS_ACCESS_KEY_ID="{{ .Values.minio.accessKey }}"
+              export AWS_SECRET_ACCESS_KEY="{{ .Values.minio.secretKey }}"
+              {{- if .Values.minio.secure }}
+              export MLFLOW_S3_ENDPOINT_URL="https://{{ .Values.minio.endpoint }}:{{ .Values.minio.port }}"
+              {{- else }}
+              export MLFLOW_S3_ENDPOINT_URL="http://{{ .Values.minio.endpoint }}:{{ .Values.minio.port }}"
+              export MLFLOW_S3_IGNORE_TLS=true
+              {{- end }}
+              export AWS_DEFAULT_REGION="{{ .Values.minio.region }}"
+              
+              echo "=== Testing database connection ==="
+              python3 -c "
+              import psycopg2
+              try:
+                  conn = psycopg2.connect(
+                      host='{{ .Values.postgresql.host }}',
+                      port={{ .Values.postgresql.port }},
+                      database='{{ .Values.postgresql.database }}',
+                      user='{{ .Values.postgresql.username }}',
+                      password='{{ .Values.postgresql.password }}'
+                  )
+                  print('✅ Database connection successful')
+                  conn.close()
+              except Exception as e:
+                  print(f'❌ Database connection failed: {e}')
+                  exit(1)
+              "
+              
+              echo "=== Starting MLflow server ==="
+              python3 -m mlflow server \
+                --host {{ .Values.mlflow.server.host }} \
+                --port {{ .Values.mlflow.server.port }} \
+                --workers {{ .Values.mlflow.server.workers }} \
+                --backend-store-uri "postgresql://{{ .Values.postgresql.username }}:{{ .Values.postgresql.password }}@{{ .Values.postgresql.host }}:{{ .Values.postgresql.port }}/{{ .Values.postgresql.database }}" \
+                --default-artifact-root "s3://{{ .Values.minio.bucket }}/artifacts"
+          ports:
+            - name: http
+              containerPort: {{ .Values.mlflow.server.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          volumeMounts:
+            - name: python-user-packages
+              mountPath: /home/user/.local
+          resources:
+            {{- toYaml .Values.mlflow.resources | nindent 12 }}
+      volumes:
+        - name: python-user-packages
+          emptyDir: {}
