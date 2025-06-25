@@ -47,3 +47,25 @@ Selector labels
 app.kubernetes.io/name: {{ include "mlflow.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Generate OAuth proxy session secret
+*/}}
+{{- define "mlflow.sessionSecret" -}}
+{{- if .Values.mlflow.oauth.sessionSecret }}
+{{- .Values.mlflow.oauth.sessionSecret }}
+{{- else }}
+{{- randAlphaNum 32 | b64enc }}
+{{- end }}
+{{- end }}
+
+{{/*
+Generate OAuth proxy cookie secret
+*/}}
+{{- define "mlflow.cookieSecret" -}}
+{{- if .Values.mlflow.oauth.cookieSecret }}
+{{- .Values.mlflow.oauth.cookieSecret }}
+{{- else }}
+{{- randAlphaNum 32 | b64enc }}
+{{- end }}
+{{- end }}

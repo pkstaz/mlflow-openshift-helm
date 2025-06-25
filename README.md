@@ -1,198 +1,334 @@
-# MLflow Helm Chart (Simple)
+# MLflow Helm Chart for OpenShift
 
-MLflow para OpenShift 4.18+ con PostgreSQL y MinIO externos.
+A simple and production-ready Helm chart to deploy MLflow on OpenShift 4.18+ with external PostgreSQL and MinIO integration.
 
-**Autor:** Carlos Estay (cestay@redhat.com)
+**Author:** Carlos Estay (cestay@redhat.com)  
+**GitHub:** pkstaz
 
-## Características
+## Features
 
-- ✅ MLflow 2.9.2
-- ✅ OpenShift 4.18+ compatible
-- ✅ PostgreSQL externa
-- ✅ MinIO externa
-- ✅ Sin dependencias de Helm
-- ✅ Configuración por parámetros
+- ✅ MLflow 2.8.1 tracking server
+- ✅ OpenShift 4.18+ compatible with SCC compliance
+- ✅ External PostgreSQL backend store
+- ✅ External MinIO artifact store
+- ✅ Optional OAuth integration with OpenShift login
+- ✅ Production-ready security context
+- ✅ No external dependencies
 
-## Estructura
+## Architecture
 
 ```
-mlflow/
-├── Chart.yaml           # Metadatos del chart
-├── values.yaml          # Valores por defecto
-├── install.sh           # Script de instalación con parámetros
-├── templates/
-│   ├── deployment.yaml  # Deployment de MLflow
-│   ├── service.yaml     # Service
-│   ├── route.yaml       # OpenShift Route
-│   ├── NOTES.txt        # Instrucciones post-instalación
-│   └── _helpers.tpl     # Template helpers
-└── README.md           # Este archivo
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   OpenShift     │    │   PostgreSQL    │    │     MinIO       │
+│    MLflow       │◄──►│   (External)    │    │   (External)    │
+│   Tracking      │    │                 │    │                 │
+│    Server       │    │  Backend Store  │    │ Artifact Store  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-## Instalación Rápida
+## Quick Start
 
-### Opción 1: Script con parámetros (Recomendado)
+### Prerequisites
 
-```bash
-./install.sh \
-  --postgres-host postgres.example.com \
-  --postgres-password mypassword \
-  --minio-endpoint minio.poc-kaggle.svc.cluster.local \
-  --minio-access-key AKIA123 \
-  --minio-secret-key secret123
-```
+- OpenShift 4.18+ cluster
+- External PostgreSQL database
+- External MinIO instance
+- Helm 3.x installed
 
-### Opción 2: Helm directo
+### Installation
+
+#### Option 1: Using Helm (Recommended)
 
 ```bash
 helm install mlflow . \
-  --set postgresql.host="postgres.example.com" \
-  --set postgresql.password="mypassword" \
-  --set minio.endpoint="minio.poc-kaggle.svc.cluster.local" \
-  --set minio.accessKey="AKIA123" \
-  --set minio.secretKey="secret123"
+  --set postgresql.host="my-postgres-host.example.com" \
+  --set postgresql.password="my-secret-password" \
+  --set minio.endpoint="my-minio-host.example.com" \
+  --set minio.accessKey="my-access-key" \
+  --set minio.secretKey="my-secret-key"
 ```
 
-### Opción 3: Archivo de valores
+#### Option 2: With OAuth Integration
 
 ```bash
-# Editar values.yaml con tus valores
-vim values.yaml
-
-# Instalar
-helm install mlflow . -f values.yaml
+helm install mlflow . \
+  --set mlflow.oauth.enabled=true \
+  --set postgresql.host="my-postgres-host.example.com" \
+  --set postgresql.password="my-secret-password" \
+  --set minio.endpoint="my-minio-host.example.com" \
+  --set minio.accessKey="my-access-key" \
+  --set minio.secretKey="my-secret-key" \
+  --set route.host="mlflow.apps.my-cluster.example.com"
 ```
 
-## Parámetros Requeridos
+#### Option 3: Using values.yaml
 
-| Parámetro | Descripción | Ejemplo |
+```bash
+# Create and edit your values file
+cp values.yaml my-values.yaml
+vim my-values.yaml
+
+# Install with custom values
+helm install mlflow . -f my-values.yaml
+```
+
+## Configuration Parameters
+
+### Required Parameters
+
+| Parameter | Description | Example |
 |-----------|-------------|---------|
-| `--postgres-host` | Host de PostgreSQL | `postgres.example.com` |
-| `--postgres-password` | Password de PostgreSQL | `mypassword` |
-| `--minio-endpoint` | Endpoint de MinIO | `minio.example.com` |
-| `--minio-access-key` | Access Key de MinIO | `AKIA123456` |
-| `--minio-secret-key` | Secret Key de MinIO | `secret123` |
+| `postgresql.host` | PostgreSQL hostname | `my-postgres-host.example.com` |
+| `postgresql.password` | PostgreSQL password | `my-secret-password` |
+| `minio.endpoint` | MinIO endpoint (without protocol) | `my-minio-host.example.com` |
+| `minio.accessKey` | MinIO access key | `my-access-key` |
+| `minio.secretKey` | MinIO secret key | `my-secret-key` |
 
-## Parámetros Opcionales
+### Optional Parameters
 
-| Parámetro | Descripción | Default |
+| Parameter | Description | Default |
 |-----------|-------------|---------|
-| `--name` | Nombre del release | `mlflow` |
-| `--namespace` | Namespace | `default` |
-| `--postgres-port` | Puerto PostgreSQL | `5432` |
-| `--postgres-database` | Nombre de la DB | `mlflow` |
-| `--postgres-username` | Usuario de la DB | `mlflow` |
-| `--minio-port` | Puerto MinIO | `9000` |
-| `--minio-secure` | Usar HTTPS | `false` |
-| `--minio-bucket` | Bucket de MinIO | `mlflow-artifacts` |
-| `--replicas` | Número de réplicas | `1` |
-| `--cpu-request` | CPU request | `250m` |
-| `--memory-request` | Memory request | `512Mi` |
+| `mlflow.replicaCount` | Number of replicas | `1` |
+| `mlflow.oauth.enabled` | Enable OpenShift OAuth | `false` |
+| `postgresql.port` | PostgreSQL port | `5432` |
+| `postgresql.database` | Database name | `mlflow` |
+| `postgresql.username` | Database username | `mlflow` |
+| `minio.bucket` | MinIO bucket for artifacts | `mlflow` |
+| `minio.secure` | Use HTTPS for MinIO | `true` |
+| `route.enabled` | Create OpenShift Route | `true` |
+| `route.host` | Custom hostname for Route | `""` (auto-generated) |
 
-## Ejemplos de Uso
+### Resource Configuration
 
-### Instalación básica
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `mlflow.resources.requests.cpu` | CPU request | `500m` |
+| `mlflow.resources.requests.memory` | Memory request | `512Mi` |
+| `mlflow.resources.limits.cpu` | CPU limit | `1000m` |
+| `mlflow.resources.limits.memory` | Memory limit | `1Gi` |
+
+## Usage Examples
+
+### Basic Installation
 
 ```bash
-./install.sh \
-  --postgres-host postgres.company.com \
-  --postgres-password secret123 \
-  --minio-endpoint minio.company.com \
-  --minio-access-key AKIA123 \
-  --minio-secret-key secret456
+helm install mlflow . \
+  --set postgresql.host="postgres.my-company.com" \
+  --set postgresql.password="my-db-secret" \
+  --set minio.endpoint="minio.my-company.com" \
+  --set minio.accessKey="my-minio-user" \
+  --set minio.secretKey="my-minio-password"
 ```
 
-### Con configuración personalizada
+### Production Setup with OAuth
 
 ```bash
-./install.sh \
-  --name mlflow-prod \
+helm install mlflow-prod . \
   --namespace mlflow \
-  --postgres-host postgres.company.com \
-  --postgres-password secret123 \
-  --postgres-database mlflow_prod \
-  --minio-endpoint minio.company.com \
-  --minio-secure true \
-  --minio-bucket mlflow-prod-artifacts \
-  --minio-access-key AKIA123 \
-  --minio-secret-key secret456 \
-  --replicas 2 \
-  --cpu-request 500m \
-  --memory-request 1Gi
+  --create-namespace \
+  --set mlflow.oauth.enabled=true \
+  --set mlflow.replicaCount=2 \
+  --set postgresql.host="postgres-prod.my-company.com" \
+  --set postgresql.password="my-production-secret" \
+  --set postgresql.database="mlflow_production" \
+  --set minio.endpoint="minio-prod.my-company.com" \
+  --set minio.bucket="mlflow-production-artifacts" \
+  --set minio.accessKey="my-prod-access-key" \
+  --set minio.secretKey="my-prod-secret-key" \
+  --set route.host="mlflow-prod.apps.my-cluster.com" \
+  --set mlflow.resources.requests.cpu="1000m" \
+  --set mlflow.resources.requests.memory="1Gi"
 ```
 
-### MinIO interno del cluster
+### Internal MinIO (within cluster)
 
 ```bash
-./install.sh \
-  --postgres-host postgres.default.svc.cluster.local \
-  --postgres-password secret123 \
-  --minio-endpoint minio.poc-kaggle.svc.cluster.local \
-  --minio-secure false \
-  --minio-access-key minioadmin \
-  --minio-secret-key minioadmin
+helm install mlflow . \
+  --set postgresql.host="postgresql.database.svc.cluster.local" \
+  --set postgresql.password="my-cluster-secret" \
+  --set minio.endpoint="minio.storage.svc.cluster.local" \
+  --set minio.secure=false \
+  --set minio.accessKey="my-internal-key" \
+  --set minio.secretKey="my-internal-secret"
 ```
 
-## Verificar Instalación
+## Verification
+
+### Check Installation Status
 
 ```bash
-# Ver pods
-oc get pods
+# Check pods
+oc get pods -l app.kubernetes.io/name=mlflow
 
-# Ver route
+# Check services
+oc get svc -l app.kubernetes.io/name=mlflow
+
+# Check routes
 oc get routes
 
-# Obtener URL de MLflow
+# Get MLflow URL
 oc get route mlflow -o jsonpath='{.spec.host}'
-
-# Ver logs
-oc logs -l app.kubernetes.io/name=mlflow -f
 ```
 
-## Configuración de Cliente Python
+### View Logs
+
+```bash
+# Follow MLflow logs
+oc logs -l app.kubernetes.io/name=mlflow -f
+
+# Check init container logs
+oc logs -l app.kubernetes.io/name=mlflow -c install-dependencies
+```
+
+## Client Configuration
+
+### Python Client Setup
 
 ```python
 import mlflow
 import os
 
-# Configurar credenciales MinIO
-os.environ['AWS_ACCESS_KEY_ID'] = 'tu-access-key'
-os.environ['AWS_SECRET_ACCESS_KEY'] = 'tu-secret-key'
-os.environ['MLFLOW_S3_ENDPOINT_URL'] = 'http://minio.endpoint.com:9000'
+# Configure MinIO credentials
+os.environ['AWS_ACCESS_KEY_ID'] = 'my-access-key'
+os.environ['AWS_SECRET_ACCESS_KEY'] = 'my-secret-key'
+os.environ['MLFLOW_S3_ENDPOINT_URL'] = 'https://my-minio-host.example.com'
 
-# Configurar MLflow
-mlflow.set_tracking_uri("https://your-mlflow-route.apps.cluster.com")
+# Set MLflow tracking URI
+mlflow.set_tracking_uri("https://mlflow.apps.my-cluster.example.com")
 
-# Usar MLflow normalmente
+# Use MLflow normally
 with mlflow.start_run():
-    mlflow.log_param("param1", 5)
-    mlflow.log_metric("metric1", 0.85)
+    mlflow.log_param("algorithm", "random_forest")
+    mlflow.log_metric("accuracy", 0.95)
     mlflow.log_artifact("model.pkl")
 ```
 
-## Desinstalar
+### Environment Variables
 
 ```bash
-helm uninstall mlflow
+export MLFLOW_TRACKING_URI="https://mlflow.apps.my-cluster.example.com"
+export AWS_ACCESS_KEY_ID="my-access-key"
+export AWS_SECRET_ACCESS_KEY="my-secret-key"
+export MLFLOW_S3_ENDPOINT_URL="https://my-minio-host.example.com"
+```
+
+## OAuth Integration
+
+When OAuth is enabled (`mlflow.oauth.enabled=true`), MLflow will be protected by OpenShift authentication:
+
+- Users must log in with their OpenShift credentials
+- Access is controlled by OpenShift RBAC
+- SSL/TLS termination is handled automatically
+- Session management via OAuth proxy
+
+### OAuth Setup
+
+```bash
+# Install with OAuth enabled
+helm install mlflow . \
+  --set mlflow.oauth.enabled=true \
+  [other parameters...]
+
+# Users access MLflow through OpenShift login
+# No additional authentication required for cluster users
 ```
 
 ## Troubleshooting
 
-### Ver logs detallados
+### Common Issues
+
+#### Pod Fails to Start
 ```bash
-oc logs -l app.kubernetes.io/name=mlflow -f
+# Check pod events
+oc describe pod -l app.kubernetes.io/name=mlflow
+
+# Check security context constraints
+oc get scc
+oc describe scc restricted-v2
 ```
 
-### Verificar conectividad
+#### Database Connection Issues
 ```bash
-# Test PostgreSQL
-oc exec deployment/mlflow -- pg_isready -h postgres.host.com -p 5432
-
-# Test MinIO
-oc exec deployment/mlflow -- curl -I http://minio.endpoint.com:9000
+# Test database connectivity
+oc exec deployment/mlflow -- python3 -c "
+import psycopg2
+conn = psycopg2.connect(
+    host='my-postgres-host.example.com',
+    port=5432,
+    database='mlflow',
+    user='mlflow',
+    password='my-secret-password'
+)
+print('Database connection successful')
+conn.close()
+"
 ```
 
-### Problemas comunes
-- **Error de conexión DB**: Verificar host, puerto y credenciales PostgreSQL
-- **Error de conexión MinIO**: Verificar endpoint, puerto y credenciales MinIO
-- **Pod no inicia**: Verificar security context y resources
+#### MinIO Connection Issues
+```bash
+# Test MinIO connectivity
+oc exec deployment/mlflow -- python3 -c "
+import boto3
+client = boto3.client(
+    's3',
+    endpoint_url='https://my-minio-host.example.com',
+    aws_access_key_id='my-access-key',
+    aws_secret_access_key='my-secret-key'
+)
+print('MinIO connection successful')
+"
+```
+
+### Debugging Commands
+
+```bash
+# Get detailed pod information
+oc get pods -o wide
+
+# Check resource usage
+oc top pods
+
+# View all MLflow resources
+oc get all -l app.kubernetes.io/name=mlflow
+
+# Check secrets
+oc get secrets -l app.kubernetes.io/name=mlflow
+```
+
+## Upgrade
+
+```bash
+# Upgrade to latest version
+helm upgrade mlflow .
+
+# Upgrade with new values
+helm upgrade mlflow . -f new-values.yaml
+```
+
+## Uninstall
+
+```bash
+# Remove MLflow installation
+helm uninstall mlflow
+
+# Clean up remaining resources (if any)
+oc delete all,secrets,configmaps -l app.kubernetes.io/name=mlflow
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test with `helm lint .`
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License.
+
+## Support
+
+For issues and questions:
+- Email: cestay@redhat.com
+- GitHub: [pkstaz](https://github.com/pkstaz)

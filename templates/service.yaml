@@ -4,11 +4,19 @@ metadata:
   name: {{ include "mlflow.fullname" . }}
   labels:
     {{- include "mlflow.labels" . | nindent 4 }}
+  {{- if .Values.mlflow.oauth.enabled }}
+  annotations:
+    service.alpha.openshift.io/serving-cert-secret-name: {{ include "mlflow.fullname" . }}-tls
+  {{- end }}
 spec:
-  type: {{ .Values.service.type }}
+  type: {{ .Values.mlflow.service.type }}
   ports:
-    - port: {{ .Values.service.port }}
-      targetPort: {{ .Values.service.targetPort }}
+    - port: {{ .Values.mlflow.service.port }}
+      {{- if .Values.mlflow.oauth.enabled }}
+      targetPort: 8443
+      {{- else }}
+      targetPort: {{ .Values.mlflow.service.targetPort }}
+      {{- end }}
       protocol: TCP
       name: http
   selector:

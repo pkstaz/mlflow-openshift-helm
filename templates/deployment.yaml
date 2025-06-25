@@ -14,13 +14,21 @@ spec:
       labels:
         {{- include "mlflow.selectorLabels" . | nindent 8 }}
     spec:
+      {{- if .Values.mlflow.oauth.enabled }}
+      serviceAccountName: {{ include "mlflow.fullname" . }}-oauth
+      {{- else }}
       serviceAccountName: {{ include "mlflow.fullname" . }}
+      {{- end }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- toYaml .Values.securityContext | nindent 8 }}
       initContainers:
         - name: install-dependencies
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: false
           image: "{{ .Values.mlflow.image.repository }}:{{ .Values.mlflow.image.tag }}"
           imagePullPolicy: {{ .Values.mlflow.image.pullPolicy }}
           command:
@@ -47,9 +55,52 @@ spec:
             - name: PYTHONPATH
               value: "/home/user/.local/lib/python3.9/site-packages"
       containers:
+        {{- if .Values.mlflow.oauth.enabled }}
+        - name: oauth-proxy
+          image: "{{ .Values.mlflow.oauth.image.repository }}:{{ .Values.mlflow.oauth.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+          - name: http
+            containerPort: 8443
+            protocol: TCP
+          args:
+          - --https-address=:8443
+          - --provider=openshift
+          - --openshift-service-account={{ include "mlflow.fullname" . }}-oauth
+          - --upstream=http://localhost:{{ .Values.mlflow.service.targetPort }}
+          - --tls-cert=/etc/tls/private/tls.crt
+          - --tls-key=/etc/tls/private/tls.key
+          - --cookie-secret-file=/etc/proxy/secrets/cookie-secret
+          - --openshift-ca=/etc/pki/tls/cert.pem
+          - --openshift-ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          - --skip-auth-regex=^/metrics
+          env:
+          - name: OAUTH2_PROXY_SESSION_STORE_TYPE
+            value: cookie
+          - name: OAUTH2_PROXY_COOKIE_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "mlflow.fullname" . }}-oauth-secret
+                key: cookie-secret
+          volumeMounts:
+          - name: proxy-tls
+            mountPath: /etc/tls/private
+          - name: oauth-secrets
+            mountPath: /etc/proxy/secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: false
+        {{- end }}
         - name: mlflow
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: false
           image: "{{ .Values.mlflow.image.repository }}:{{ .Values.mlflow.image.tag }}"
           imagePullPolicy: {{ .Values.mlflow.image.pullPolicy }}
           env:
@@ -57,6 +108,35 @@ spec:
               value: "/home/user"
             - name: PYTHONPATH
               value: "/home/user/.local/lib/python3.9/site-packages"
+            - name: DB_HOST
+              value: {{ .Values.postgresql.host | quote }}
+            - name: DB_PORT
+              value: {{ .Values.postgresql.port | quote }}
+            - name: DB_NAME
+              value: {{ .Values.postgresql.database | quote }}
+            - name: DB_USER
+              value: {{ .Values.postgresql.username | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mlflow.fullname" . }}-secret
+                  key: db-password
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mlflow.fullname" . }}-secret
+                  key: minio-access-key
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mlflow.fullname" . }}-secret
+                  key: minio-secret-key
+            - name: AWS_S3_ENDPOINT_URL
+              value: {{ if .Values.minio.secure }}https://{{ else }}http://{{ end }}{{ .Values.minio.endpoint }}
+            - name: MINIO_BUCKET
+              value: {{ .Values.minio.bucket | quote }}
+            - name: MLFLOW_S3_IGNORE_TLS
+              value: {{ if .Values.minio.secure }}"false"{{ else }}"true"{{ end }}
           command:
             - /bin/bash
             - -c
@@ -68,27 +148,16 @@ spec:
               python3 -c "import psycopg2; print('PostgreSQL driver OK')"
               python3 -c "import boto3; print('AWS SDK OK')"
               
-              echo "=== Configuring environment variables ==="
-              export AWS_ACCESS_KEY_ID="{{ .Values.minio.accessKey }}"
-              export AWS_SECRET_ACCESS_KEY="{{ .Values.minio.secretKey }}"
-              {{- if .Values.minio.secure }}
-              export MLFLOW_S3_ENDPOINT_URL="https://{{ .Values.minio.endpoint }}:{{ .Values.minio.port }}"
-              {{- else }}
-              export MLFLOW_S3_ENDPOINT_URL="http://{{ .Values.minio.endpoint }}:{{ .Values.minio.port }}"
-              export MLFLOW_S3_IGNORE_TLS=true
-              {{- end }}
-              export AWS_DEFAULT_REGION="{{ .Values.minio.region }}"
-              
               echo "=== Testing database connection ==="
               python3 -c "
               import psycopg2
               try:
                   conn = psycopg2.connect(
-                      host='{{ .Values.postgresql.host }}',
-                      port={{ .Values.postgresql.port }},
-                      database='{{ .Values.postgresql.database }}',
-                      user='{{ .Values.postgresql.username }}',
-                      password='{{ .Values.postgresql.password }}'
+                      host='${DB_HOST}',
+                      port=${DB_PORT},
+                      database='${DB_NAME}',
+                      user='${DB_USER}',
+                      password='${DB_PASSWORD}'
                   )
                   print('✅ Database connection successful')
                   conn.close()
@@ -99,25 +168,33 @@ spec:
               
               echo "=== Starting MLflow server ==="
               python3 -m mlflow server \
-                --host {{ .Values.mlflow.server.host }} \
-                --port {{ .Values.mlflow.server.port }} \
-                --workers {{ .Values.mlflow.server.workers }} \
-                --backend-store-uri "postgresql://{{ .Values.postgresql.username }}:{{ .Values.postgresql.password }}@{{ .Values.postgresql.host }}:{{ .Values.postgresql.port }}/{{ .Values.postgresql.database }}" \
-                --default-artifact-root "s3://{{ .Values.minio.bucket }}/artifacts"
+                --host {{ if .Values.mlflow.oauth.enabled }}127.0.0.1{{ else }}0.0.0.0{{ end }} \
+                --port {{ .Values.mlflow.service.targetPort }} \
+                --backend-store-uri "postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}" \
+                --default-artifact-root "s3://${MINIO_BUCKET}/artifacts" \
+                --serve-artifacts
           ports:
+            {{- if not .Values.mlflow.oauth.enabled }}
             - name: http
-              containerPort: {{ .Values.mlflow.server.port }}
+              containerPort: {{ .Values.mlflow.service.targetPort }}
               protocol: TCP
+            {{- end }}
           livenessProbe:
             httpGet:
-              path: /health
-              port: http
+              path: {{ if .Values.mlflow.oauth.enabled }}/oauth/healthz{{ else }}/health{{ end }}
+              port: {{ if .Values.mlflow.oauth.enabled }}8443{{ else }}http{{ end }}
+              {{- if .Values.mlflow.oauth.enabled }}
+              scheme: HTTPS
+              {{- end }}
             initialDelaySeconds: 60
             periodSeconds: 30
           readinessProbe:
             httpGet:
-              path: /health
-              port: http
+              path: {{ if .Values.mlflow.oauth.enabled }}/oauth/healthz{{ else }}/health{{ end }}
+              port: {{ if .Values.mlflow.oauth.enabled }}8443{{ else }}http{{ end }}
+              {{- if .Values.mlflow.oauth.enabled }}
+              scheme: HTTPS
+              {{- end }}
             initialDelaySeconds: 30
             periodSeconds: 10
           volumeMounts:
@@ -128,3 +205,11 @@ spec:
       volumes:
         - name: python-user-packages
           emptyDir: {}
+        {{- if .Values.mlflow.oauth.enabled }}
+        - name: proxy-tls
+          secret:
+            secretName: {{ include "mlflow.fullname" . }}-tls
+        - name: oauth-secrets
+          secret:
+            secretName: {{ include "mlflow.fullname" . }}-oauth-secret
+        {{- end }}

@@ -1,67 +1,64 @@
-# MLflow configuration
 mlflow:
   image:
     repository: python
-    tag: "3.9"
+    tag: "3.9-slim"
     pullPolicy: IfNotPresent
+  
+  # Alternative: use pre-built MLFlow image to avoid initContainer
+  # image:
+  #   repository: ghcr.io/mlflow/mlflow
+  #   tag: "v2.8.1"
+  #   pullPolicy: IfNotPresent
   
   replicaCount: 1
   
-  server:
-    host: "0.0.0.0"
+  # Set to true to use pre-built image instead of initContainer
+  usePrebuiltImage: false
+  
+  service:
+    type: ClusterIP
     port: 5000
-    workers: 2
+    targetPort: 5000
   
   resources:
-    requests:
-      cpu: 250m
-      memory: 512Mi
     limits:
       cpu: 1000m
       memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
 
-# External PostgreSQL configuration
+  # OAuth proxy configuration for OpenShift login
+  oauth:
+    enabled: true
+    image:
+      repository: quay.io/openshift/origin-oauth-proxy
+      tag: "4.15"
+    sessionSecret: ""  # Auto-generated if empty
+    cookieSecret: ""   # Auto-generated if empty
+
 postgresql:
-  host: ""          # REQUIRED: PostgreSQL host
+  host: ""
   port: 5432
   database: "mlflow"
   username: "mlflow"
-  password: ""      # REQUIRED: PostgreSQL password
+  password: ""
 
-# External MinIO configuration  
 minio:
-  endpoint: ""      # REQUIRED: MinIO endpoint
-  port: 9000
-  secure: false     # true for HTTPS, false for HTTP
-  bucket: "mlflow-artifacts"
-  region: "us-east-1"
-  accessKey: ""     # REQUIRED: MinIO access key
-  secretKey: ""     # REQUIRED: MinIO secret key
+  endpoint: ""
+  accessKey: ""
+  secretKey: ""
+  bucket: "mlflow"
+  secure: true
 
-# Service configuration
-service:
-  type: ClusterIP
-  port: 80
-  targetPort: 5000
-
-# OpenShift Route configuration
 route:
   enabled: true
-  host: ""          # Leave empty for auto-generated host
+  host: ""
   tls:
-    enabled: true
     termination: edge
+    insecureEdgeTerminationPolicy: Redirect
 
-# Security Context for OpenShift (compatible with restricted-v2 SCC)
 securityContext:
   runAsNonRoot: true
-  allowPrivilegeEscalation: false
-  capabilities:
-    drop:
-      - ALL
-  readOnlyRootFilesystem: false
-  seccompProfile:
-    type: RuntimeDefault
-
-# Pod Security Context (sin fsGroup para evitar problemas con restricted-v2)
-podSecurityContext: {}
+  # OpenShift will assign UID/GID automatically from project range
+  # fsGroup and runAsUser removed for OpenShift compatibility

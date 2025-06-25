@@ -15,10 +15,16 @@ spec:
     weight: 100
   port:
     targetPort: http
-  {{- if .Values.route.tls.enabled }}
+  {{- if .Values.route.tls }}
   tls:
+    {{- if .Values.mlflow.oauth.enabled }}
+    termination: reencrypt
+    {{- else }}
     termination: {{ .Values.route.tls.termination }}
-    insecureEdgeTerminationPolicy: Redirect
+    {{- end }}
+    {{- if .Values.route.tls.insecureEdgeTerminationPolicy }}
+    insecureEdgeTerminationPolicy: {{ .Values.route.tls.insecureEdgeTerminationPolicy }}
+    {{- end }}
   {{- end }}
   wildcardPolicy: None
 {{- end }}

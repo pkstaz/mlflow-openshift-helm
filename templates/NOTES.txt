@@ -1,22 +1,161 @@
-1. Get the application URL:
-{{- if .Values.route.enabled }}
-  export ROUTE_HOST=$(oc get route {{ include "mlflow.fullname" . }} -o jsonpath='{.spec.host}')
-  {{- if .Values.route.tls.enabled }}
-  echo "MLflow URL: https://$ROUTE_HOST"
-  {{- else }}
-  echo "MLflow URL: http://$ROUTE_HOST"
-  {{- end }}
+🚀 MLflow has been successfully deployed!
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📋 DEPLOYMENT INFORMATION
+  Release Name: {{ .Release.Name }}
+  Namespace:    {{ .Release.Namespace }}
+  Chart:        {{ .Chart.Name }}-{{ .Chart.Version }}
+  App Version:  {{ .Chart.AppVersion }}
+{{- if .Values.mlflow.oauth.enabled }}
+  OAuth:        ✅ Enabled (OpenShift Authentication)
 {{- else }}
-  export POD_NAME=$(oc get pods -l "app.kubernetes.io/name={{ include "mlflow.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
-  echo "Visit http://127.0.0.1:8080 to use MLflow"
-  oc port-forward $POD_NAME 8080:{{ .Values.mlflow.server.port }}
+  OAuth:        ❌ Disabled (Direct Access)
 {{- end }}
 
-2. Configuration:
-   - PostgreSQL: {{ .Values.postgresql.host }}:{{ .Values.postgresql.port }}/{{ .Values.postgresql.database }}
-   - MinIO: {{ if .Values.minio.secure }}https{{ else }}http{{ end }}://{{ .Values.minio.endpoint }}:{{ .Values.minio.port }}
-   - Bucket: {{ .Values.minio.bucket }}
+═══════════════════════════════════════════════════════════════════════════════
 
-3. Check status:
-   oc get pods -l app.kubernetes.io/name={{ include "mlflow.name" . }}
-   oc logs -l app.kubernetes.io/name={{ include "mlflow.name" . }} -f
+🌐 ACCESS INFORMATION
+
+{{- if .Values.route.enabled }}
+  {{- if .Values.route.host }}
+MLflow URL: https://{{ .Values.route.host }}
+  {{- else }}
+To get the MLflow URL, run:
+  oc get route {{ include "mlflow.fullname" . }} -o jsonpath='{.spec.host}'
+  {{- end }}
+{{- else }}
+MLflow is accessible through the service:
+  Service: {{ include "mlflow.fullname" . }}
+  Port:    {{ .Values.mlflow.service.port }}
+
+To access MLflow, create a route or port-forward:
+  oc expose service {{ include "mlflow.fullname" . }}
+  # OR
+  oc port-forward service/{{ include "mlflow.fullname" . }} 5000:{{ .Values.mlflow.service.port }}
+{{- end }}
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🔍 VERIFICATION COMMANDS
+
+Check deployment status:
+  oc get pods -l app.kubernetes.io/name={{ include "mlflow.name" . }}
+
+View MLflow logs:
+  oc logs -l app.kubernetes.io/name={{ include "mlflow.name" . }} -f
+
+Check service status:
+  oc get svc {{ include "mlflow.fullname" . }}
+
+{{- if .Values.route.enabled }}
+Get external URL:
+  oc get route {{ include "mlflow.fullname" . }} -o jsonpath='{.spec.host}'
+{{- end }}
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🐍 PYTHON CLIENT CONFIGURATION
+
+Configure your MLflow client:
+
+```python
+import mlflow
+import os
+
+# Set tracking URI
+{{- if .Values.route.enabled }}
+  {{- if .Values.route.host }}
+mlflow.set_tracking_uri("https://{{ .Values.route.host }}")
+  {{- else }}
+mlflow.set_tracking_uri("https://<your-route-host>")
+  {{- end }}
+{{- else }}
+mlflow.set_tracking_uri("http://localhost:5000")  # if using port-forward
+{{- end }}
+
+# Configure MinIO credentials
+os.environ['AWS_ACCESS_KEY_ID'] = '{{ .Values.minio.accessKey }}'
+os.environ['AWS_SECRET_ACCESS_KEY'] = '<your-secret-key>'
+{{- if .Values.minio.secure }}
+os.environ['MLFLOW_S3_ENDPOINT_URL'] = 'https://{{ .Values.minio.endpoint }}'
+{{- else }}
+os.environ['MLFLOW_S3_ENDPOINT_URL'] = 'http://{{ .Values.minio.endpoint }}'
+{{- end }}
+
+# Start using MLflow
+with mlflow.start_run():
+    mlflow.log_param("param1", "value1")
+    mlflow.log_metric("metric1", 0.85)
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🔧 CONFIGURATION SUMMARY
+
+Database Backend:
+  Host:     {{ .Values.postgresql.host }}
+  Port:     {{ .Values.postgresql.port }}
+  Database: {{ .Values.postgresql.database }}
+  Username: {{ .Values.postgresql.username }}
+
+Artifact Store (MinIO):
+  Endpoint: {{ if .Values.minio.secure }}https://{{ else }}http://{{ end }}{{ .Values.minio.endpoint }}
+  Bucket:   {{ .Values.minio.bucket }}
+  Secure:   {{ .Values.minio.secure }}
+
+Resources:
+  Replicas: {{ .Values.mlflow.replicaCount }}
+  CPU:      {{ .Values.mlflow.resources.requests.cpu }} (request) / {{ .Values.mlflow.resources.limits.cpu }} (limit)
+  Memory:   {{ .Values.mlflow.resources.requests.memory }} (request) / {{ .Values.mlflow.resources.limits.memory }} (limit)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+⚠️  IMPORTANT NOTES
+
+{{- if .Values.mlflow.oauth.enabled }}
+🔐 OAuth is enabled - users must authenticate through OpenShift
+{{- else }}
+🔓 OAuth is disabled - MLflow is accessible without authentication
+   Consider enabling OAuth for production environments:
+   helm upgrade {{ .Release.Name }} . --set mlflow.oauth.enabled=true
+{{- end }}
+
+🔑 Credentials are stored in Kubernetes secrets:
+  {{ include "mlflow.fullname" . }}-secret
+
+📊 Database should be initialized with MLflow schema
+   If this is a fresh installation, MLflow will create tables automatically
+
+🗄️  Ensure MinIO bucket "{{ .Values.minio.bucket }}" exists and is accessible
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🆘 TROUBLESHOOTING
+
+If pods are not starting:
+  oc describe pod -l app.kubernetes.io/name={{ include "mlflow.name" . }}
+
+Check MLflow initialization logs:
+  oc logs -l app.kubernetes.io/name={{ include "mlflow.name" . }} -c install-dependencies
+
+Test database connectivity:
+  oc exec deployment/{{ include "mlflow.fullname" . }} -- python3 -c "
+  import psycopg2
+  conn = psycopg2.connect(
+      host='{{ .Values.postgresql.host }}',
+      port={{ .Values.postgresql.port }},
+      database='{{ .Values.postgresql.database }}',
+      user='{{ .Values.postgresql.username }}',
+      password='<password>'
+  )
+  print('Database connection: OK')
+  conn.close()
+  "
+
+For more help, visit: https://github.com/pkstaz
+Contact: cestay@redhat.com
+
+═══════════════════════════════════════════════════════════════════════════════
+
+✨ Happy tracking with MLflow on OpenShift! ✨
